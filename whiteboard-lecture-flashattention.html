@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板书 — Flash Attention Softmax 推导</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap');
+
+  :root {
+    --paper: #fcfbf7;
+    --ink: #1a1a1a;
+    --ink-light: #3a3a3a;
+    --accent: #1a1a1a;
+    --annotation: #555;
+    --bracket: #222;
+    --strike: #888;
+    --rule-color: rgba(0,0,0,0.04);
+    --margin-line: rgba(200,60,60,0.12);
+    --hand: 'Caveat', cursive;
+    --hand2: 'Kalam', cursive;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #e8e6e0;
+    min-height: 100vh;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ===== The Paper ===== */
+  .paper {
+    background: var(--paper);
+    max-width: 780px;
+    width: 100%;
+    padding: 40px 48px 48px 72px;
+    position: relative;
+    box-shadow:
+      0 1px 3px rgba(0,0,0,0.06),
+      0 8px 24px rgba(0,0,0,0.04),
+      2px 2px 0 rgba(0,0,0,0.02);
+    /* faint ruled lines */
+    background-image:
+      repeating-linear-gradient(
+        transparent, transparent 31px, var(--rule-color) 31px, var(--rule-color) 32px
+      );
+    background-position: 0 38px;
+    /* margin red line */
+    border-left: none;
+    margin-bottom: 16px;
+  }
+  .paper::before {
+    content: '';
+    position: absolute;
+    left: 56px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--margin-line);
+  }
+
+  /* Page navigation */
+  .page-nav {
+    max-width: 780px;
+    width: 100%;
+    display: flex;
+    gap: 0;
+    margin-bottom: 2px;
+  }
+  .page-tab {
+    font-family: var(--hand);
+    font-size: 1.15rem;
+    font-weight: 600;
+    padding: 8px 22px;
+    background: #eae8e2;
+    border: 1px solid #d0cdc4;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    color: var(--annotation);
+    transition: background 0.15s;
+  }
+  .page-tab:hover { background: #f0eeea; }
+  .page-tab.active {
+    background: var(--paper);
+    color: var(--ink);
+    border-bottom: 1px solid var(--paper);
+    position: relative;
+    z-index: 2;
+  }
+
+  /* ===== Handwritten Typography ===== */
+  .line {
+    font-family: var(--hand);
+    font-size: 1.35rem;
+    color: var(--ink);
+    line-height: 2.05;
+    margin: 0;
+    /* Each line slightly misaligned like real handwriting */
+  }
+  .line.indent1 { padding-left: 32px; }
+  .line.indent2 { padding-left: 64px; }
+  .line.indent3 { padding-left: 96px; }
+
+  /* Large formula / equation — centered, slightly bigger */
+  .eq {
+    font-family: var(--hand2);
+    font-size: 1.25rem;
+    color: var(--ink);
+    line-height: 2.2;
+    text-align: center;
+    display: block;
+    margin: 2px 0;
+  }
+  .eq.left { text-align: left; padding-left: 64px; }
+
+  /* Small annotation (like margin scribble) */
+  .note {
+    font-family: var(--hand);
+    font-size: 1.05rem;
+    color: var(--annotation);
+    line-height: 1.8;
+  }
+  .note.circled {
+    display: inline-block;
+    border: 1.5px solid var(--annotation);
+    border-radius: 50%;
+    padding: 0 8px;
+    margin: 0 2px;
+  }
+
+  /* Struck-through (erased/corrected) */
+  .del {
+    text-decoration: line-through;
+    text-decoration-color: var(--strike);
+    color: var(--strike);
+  }
+
+  /* Arrow annotation */
+  .arrow-note {
+    font-family: var(--hand);
+    font-size: 1.15rem;
+    color: var(--ink);
+    display: inline;
+  }
+
+  /* Underline emphasis */
+  .uline {
+    text-decoration: underline;
+    text-decoration-style: wavy;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1.5px;
+    text-decoration-color: var(--ink-light);
+  }
+
+  /* Fraction display using inline-flex */
+  .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    margin: 0 3px;
+    line-height: 1.1;
+  }
+  .frac .num {
+    border-bottom: 1.5px solid var(--ink);
+    padding: 0 4px 2px;
+    font-size: 0.95em;
+  }
+  .frac .den {
+    padding: 2px 4px 0;
+    font-size: 0.95em;
+  }
+
+  /* Big bracket block: { with left brace */
+  .brace-block {
+    display: flex;
+    align-items: stretch;
+    margin: 4px 0 4px 32px;
+    gap: 6px;
+  }
+  .brace-left {
+    font-family: var(--hand2);
+    font-size: 3.5rem;
+    line-height: 1;
+    color: var(--bracket);
+    display: flex;
+    align-items: center;
+    font-weight: 300;
+    transform: scaleY(1.3);
+  }
+  .brace-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+  }
+
+  /* Result box — just a hand-drawn rectangle around the answer */
+  .result-box {
+    display: inline-block;
+    border: 2px solid var(--ink);
+    border-radius: 2px;
+    padding: 2px 10px;
+    margin: 4px 0;
+    /* slight rotation for hand-drawn feel */
+    transform: rotate(-0.3deg);
+  }
+
+  /* Section divider — just a long dash */
+  .divider {
+    border: none;
+    border-top: 1px dashed rgba(0,0,0,0.12);
+    margin: 10px 0;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .paper { padding: 24px 16px 32px 40px; }
+    .paper::before { left: 28px; }
+    .line { font-size: 1.15rem; line-height: 1.9; }
+    .eq { font-size: 1.1rem; }
+    .line.indent1 { padding-left: 20px; }
+    .line.indent2 { padding-left: 40px; }
+    .line.indent3 { padding-left: 60px; }
+    .brace-block { margin-left: 16px; }
+    .page-tab { font-size: 1rem; padding: 6px 14px; }
+  }
+
+  /* a11y */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* Print: show all pages */
+  @media print {
+    body { background: white; padding: 0; }
+    .page-nav { display: none; }
+    .paper { box-shadow: none; break-inside: avoid; page-break-after: always; }
+    .page { display: block !important; }
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Page number bottom-right, faint */
+  .page-num {
+    text-align: right;
+    font-family: var(--hand);
+    font-size: 1rem;
+    color: rgba(0,0,0,0.18);
+    margin-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-nav" role="tablist" aria-label="板书页码">
+  <button class="page-tab active" role="tab" aria-selected="true" aria-controls="p1" onclick="go(0,this)">① 标准Softmax</button>
+  <button class="page-tab" role="tab" aria-selected="false" aria-controls="p2" onclick="go(1,this)">② Tiling拆块</button>
+  <button class="page-tab" role="tab" aria-selected="false" aria-controls="p3" onclick="go(2,this)">③ 修正合并</button>
+  <button class="page-tab" role="tab" aria-selected="false" aria-controls="p4" onclick="go(3,this)">④ TAOCP视角</button>
+</div>
+
+<!-- ==================== PAGE 1 ==================== -->
+<div class="paper">
+<div class="page active" id="p1" role="tabpanel">
+
+<p class="line">假设计算 x = [1, 3, 2, 4] 的 softmax.</p>
+
+<p class="line">标准做法：softmax(x<sub>i</sub>) =
+  <span class="frac">
+    <span class="num">e<sup>x<sub>i</sub> − max(x)</sup></span>
+    <span class="den">Σ e<sup>x<sub>j</sub> − max(x)</sup></span>
+  </span>
+</p>
+
+<p class="line" style="margin-top:4px;">max(x) = 4, 代入：</p>
+
+<div class="brace-block">
+  <span class="brace-left">{</span>
+  <div class="brace-content">
+    <p class="line">e<sup>−3</sup> ≈ 0.0498</p>
+    <p class="line">e<sup>−1</sup> ≈ 0.3679</p>
+    <p class="line">e<sup>−2</sup> ≈ 0.1353</p>
+    <p class="line">e<sup>0</sup> = 1</p>
+  </div>
+</div>
+
+<p class="line indent1">求和 → 0.0498 + 0.3679 + 0.1353 + 1 = <span class="uline">1.553</span></p>
+
+<p class="line indent1">→ <span class="result-box">[0.032, 0.237, 0.087, 0.644]</span></p>
+
+<p class="note indent1">这就是标准 attention 中的一步操作</p>
+
+<hr class="divider">
+
+<p class="line"><span class="uline">缺点</span>：每次读 <em>全部</em> 内存太大，速度慢。</p>
+
+<div class="page-num">1 / 4</div>
+</div>
+
+<!-- ==================== PAGE 2 ==================== -->
+<div class="page" id="p2" role="tabpanel">
+
+<p class="line">Flash Attention 中 tiling 做法：</p>
+<p class="line indent1">假设每次取 2 个元素, 按上面分成</p>
+<p class="line indent1">块1: [1, 3] , 块2: [2, 4]</p>
+
+<hr class="divider">
+
+<p class="line">先对各块按标准做法：</p>
+
+<p class="line indent2">块1: max = 3</p>
+<p class="line indent2">[e<sup>1−3</sup>, e<sup>3−3</sup>] = [e<sup>−2</sup>, e<sup>0</sup>] = [0.1353, 1]</p>
+<p class="line indent2">求和 ℓ<sup>(1)</sup> = 1.1353</p>
+
+<p class="line indent2" style="margin-top:6px;">块2: max = 4</p>
+<p class="line indent2">[e<sup>2−4</sup>, e<sup>4−4</sup>] = [e<sup>−2</sup>, e<sup>0</sup>] = [0.1353, 1]</p>
+<p class="line indent2">求和 ℓ<sup>(2)</sup> = 1.1353</p>
+
+<hr class="divider">
+
+<p class="note">⬆ 到这里为止，每块独立计算，只需要 B<sub>c</sub> 大小的 SRAM</p>
+<p class="note">问题：两块的 max 不同（3 vs 4），直接加会<span class="del">错</span>出错 → 需要修正</p>
+
+<div class="page-num">2 / 4</div>
+</div>
+
+<!-- ==================== PAGE 3 ==================== -->
+<div class="page" id="p3" role="tabpanel">
+
+<p class="line"><span class="uline">修正 & 合并操作</span>：</p>
+
+<p class="line" style="margin-top:4px;"><span class="note circled">先</span> 计算新的全局 max：</p>
+
+<p class="eq left">m(x) = max(max(x<sup>(1)</sup>), max(x<sup>(2)</sup>)) = max(3, 4) = 4</p>
+
+<hr class="divider">
+
+<p class="line"><span class="note circled">然后</span> 修正各块的未归一化值：</p>
+
+<p class="eq left">f(x) = [e<sup>m(x<sup>(1)</sup>)−m(x)</sup> · f(x<sup>(1)</sup>), &nbsp; e<sup>m(x<sup>(2)</sup>)−m(x)</sup> · f(x<sup>(2)</sup>)]</p>
+
+<p class="eq left">= [e<sup>(3−4)</sup> · f(x<sup>(1)</sup>), &nbsp; e<sup>(4−4)</sup> · f(x<sup>(2)</sup>)]</p>
+
+<p class="line indent1">即对块1修正：e<sup>−1</sup> × [0.1353, 1] = [0.0498, 0.3679]</p>
+<p class="line indent1">块2不变。</p>
+
+<hr class="divider">
+
+<p class="line">再求出修正的加权和：</p>
+<p class="eq left">ℓ = e<sup>(3−4)</sup> · 1.1353 + 1.1353 = <span class="del">e<sup>−1</sup>·1.135</span> 0.4177 + 1.1353 = <span class="uline">1.553</span></p>
+
+<p class="line" style="margin-top:4px;">最后 softmax：</p>
+<p class="eq">[
+  <span class="frac"><span class="num">0.0498</span><span class="den">1.553</span></span> ,
+  <span class="frac"><span class="num">0.3679</span><span class="den">1.553</span></span> ,
+  <span class="frac"><span class="num">0.1353</span><span class="den">1.553</span></span> ,
+  <span class="frac"><span class="num">1</span><span class="den">1.553</span></span>
+]</p>
+
+<p class="line" style="margin-top:6px; text-align:center;">
+  得：<span class="result-box">[0.032, 0.237, 0.087, 0.644]</span>
+  &nbsp; ← <span class="note">与标准做法完全一致 ✓</span>
+</p>
+
+<div class="page-num">3 / 4</div>
+</div>
+
+<!-- ==================== PAGE 4 ==================== -->
+<div class="page" id="p4" role="tabpanel">
+
+<p class="line"><span class="uline">TAOCP 视角</span>：Knuth 怎么看这个问题</p>
+
+<hr class="divider">
+
+<p class="line">Knuth §1.1 — 算法五性质验证：</p>
+<p class="line indent1">① 有穷性：块数 = ⌈N/B<sub>c</sub>⌉ ，有限次循环 ✓</p>
+<p class="line indent1">② 确定性：每步只有 exp, max, sum — 无歧义 ✓</p>
+<p class="line indent1">③ 输入：Q, K, V ∈ ℝ<sup>N×d</sup></p>
+<p class="line indent1">④ 输出：O = softmax(QK<sup>T</sup>)V</p>
+<p class="line indent1">⑤ 有效性：所有运算可在有限时间完成 ✓</p>
+
+<hr class="divider">
+
+<p class="line">复杂度（Knuth 式精确分析）：</p>
+<p class="line indent1">标准做法 HBM 读写 = Θ(Nd + N²)</p>
+<p class="line indent1">Flash Attn 2 HBM 读写 = Θ(N²d² / M)</p>
+<p class="line indent1">其中 M = SRAM 大小</p>
+
+<p class="line" style="margin-top:4px;">Dao 证明了下界 Ω(N²d²/M)</p>
+<p class="line indent1">→ <span class="uline">Flash Attention 2 是 IO 最优的</span></p>
+
+<hr class="divider">
+
+<p class="line">Knuth, Vol.1 §1.3.1：</p>
+<p class="line indent1"><em>"运行时间取决于实现，而非仅算法本身"</em></p>
+<p class="line indent1">FA2 正是这个思想的现代实例：</p>
+<p class="line indent2">FLOPs 相同，但 IO 减少 → 实际快 6.5×</p>
+
+<p class="line" style="margin-top:8px;">
+  <span class="note">实测 A100, seq=2K, d=128：</span>
+</p>
+<p class="line indent1">PyTorch std: 85ms → FA1: 22ms → <span class="result-box">FA2: 13ms</span></p>
+
+<div class="page-num">4 / 4</div>
+</div>
+</div><!-- /paper -->
+
+<script>
+const pages = document.querySelectorAll('.page');
+const tabs = document.querySelectorAll('.page-tab');
+function go(i, btn) {
+  pages.forEach(p => p.classList.remove('active'));
+  tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+  pages[i].classList.add('active');
+  btn.classList.add('active');
+  btn.setAttribute('aria-selected','true');
+}
+// Keyboard navigation for tabs
+document.querySelector('.page-nav').addEventListener('keydown', function(e) {
+  const idx = [...tabs].indexOf(document.activeElement);
+  if (idx < 0) return;
+  let next = idx;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % tabs.length;
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + tabs.length) % tabs.length;
+  else return;
+  e.preventDefault();
+  tabs[next].focus();
+  go(next, tabs[next]);
+});
+</script>
+
+</body>
+</html>
