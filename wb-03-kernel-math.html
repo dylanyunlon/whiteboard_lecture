@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板书 — 从Kernel到万卡: 工程深水区数学</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap');
+  :root{--bg:#fcfbf7;--ink:#1a1a1a;--lt:#3a3a3a;--dm:#555;--rd:#b03030;--bl:#1a4a7a;--gn:#1a6a3a;--rl:rgba(0,0,0,0.04);--mg:rgba(200,60,60,0.12);--h1:'Caveat',cursive;--h2:'Kalam',cursive}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#e8e6e0;min-height:100vh;padding:16px;display:flex;flex-direction:column;align-items:center}
+  .paper{background:var(--bg);max-width:780px;width:100%;padding:40px 48px 48px 72px;position:relative;box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.04);background-image:repeating-linear-gradient(transparent,transparent 31px,var(--rl) 31px,var(--rl) 32px);background-position:0 38px;margin-bottom:16px}
+  .paper::before{content:'';position:absolute;left:56px;top:0;bottom:0;width:1px;background:var(--mg)}
+  nav{max-width:780px;width:100%;display:flex;margin-bottom:2px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  nav::-webkit-scrollbar{height:0}
+  nav button{font-family:var(--h1);font-size:1.08rem;font-weight:600;padding:7px 14px;background:#eae8e2;border:1px solid #d0cdc4;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;color:var(--dm);transition:background .15s;white-space:nowrap;flex-shrink:0}
+  nav button:hover{background:#f0eeea}
+  nav button.on{background:var(--bg);color:var(--ink);border-bottom:1px solid var(--bg);position:relative;z-index:2}
+  .L{font-family:var(--h1);font-size:1.35rem;color:var(--ink);line-height:2.05}
+  .i1{padding-left:32px}.i2{padding-left:64px}
+  .E{font-family:var(--h2);font-size:1.25rem;color:var(--ink);line-height:2.2;text-align:center;display:block;margin:2px 0}
+  .E.l{text-align:left;padding-left:64px}
+  .N{font-family:var(--h1);font-size:1.05rem;color:var(--dm);line-height:1.8}
+  .N.c{display:inline-block;border:1.5px solid var(--dm);border-radius:50%;padding:0 8px;margin:0 2px}
+  .x{text-decoration:line-through;text-decoration-color:#888;color:#888}
+  .u{text-decoration:underline;text-decoration-style:wavy;text-underline-offset:3px;text-decoration-thickness:1.5px;text-decoration-color:var(--lt)}
+  .r{color:var(--rd)}.b{color:var(--bl)}.g{color:var(--gn)}
+  .f{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;line-height:1.1}
+  .f .n{border-bottom:1.5px solid var(--ink);padding:0 4px 2px;font-size:.95em}
+  .f .d{padding:2px 4px 0;font-size:.95em}
+  .B{display:flex;align-items:stretch;margin:4px 0 4px 32px;gap:6px}
+  .B-l{font-family:var(--h2);font-size:3.5rem;line-height:1;color:#222;display:flex;align-items:center;font-weight:300;transform:scaleY(1.3)}
+  .B-c{display:flex;flex-direction:column;justify-content:center}
+  .bx{display:inline-block;border:2px solid var(--ink);border-radius:2px;padding:2px 10px;margin:4px 0;transform:rotate(-.3deg)}
+  hr{border:none;border-top:1px dashed rgba(0,0,0,.12);margin:10px 0}
+  .pn{text-align:right;font-family:var(--h1);font-size:1rem;color:rgba(0,0,0,.18);margin-top:16px}
+  .pg{display:none}.pg.on{display:block}
+  @media(max-width:600px){.paper{padding:24px 16px 32px 40px}.paper::before{left:28px}.L{font-size:1.15rem;line-height:1.9}.E{font-size:1.1rem}.i1{padding-left:20px}.i2{padding-left:40px}.B{margin-left:12px}nav button{font-size:.9rem;padding:6px 9px}}
+  @media print{body{background:#fff;padding:0}nav{display:none}.paper{box-shadow:none;break-inside:avoid;page-break-after:always}.pg{display:block!important}}
+</style>
+</head>
+<body>
+
+<nav>
+  <button class="on" onclick="go(0,this)">① exp2技巧</button>
+  <button onclick="go(1,this)">② Online Rescale</button>
+  <button onclick="go(2,this)">③ FP8缩放</button>
+  <button onclick="go(3,this)">④ GEMM Roofline</button>
+  <button onclick="go(4,this)">⑤ Ring通信量</button>
+  <button onclick="go(5,this)">⑥ 3D并行内存</button>
+  <button onclick="go(6,this)">⑦ Pipeline Bubble</button>
+  <button onclick="go(7,this)">⑧ 万卡故障</button>
+  <button onclick="go(8,this)">⑨ TAOCP批判</button>
+</nav>
+
+<div class="paper">
+
+<!-- P1: exp2 trick -->
+<div class="pg on">
+<p class="L"><span class="u">Softmax 中 exp → exp2 优化</span></p>
+<p class="L">标准: e<sup>x<sub>i</sub>−m</sup>, &nbsp; GPU上 expf = 2条指令</p>
+<p class="L">利用:</p>
+<p class="E">e<sup>a</sup> = 2<sup>a · log₂e</sup></p>
+<p class="L">令 s = log₂e ≈ 1.4427, 代入:</p>
+<p class="E l">e<sup>x<sub>i</sub>−m</sup> = 2<sup>(x<sub>i</sub>−m)·s</sup> = 2<sup>x<sub>i</sub>·s − m·s</sup></p>
+<hr>
+<p class="L">关键: x<sub>i</sub>·s − m·s 是 <span class="g">fused multiply-add</span></p>
+<p class="L i1">ffma(x<sub>i</sub>, s, −m·s) → 1条指令</p>
+<p class="L i1">exp2f(result) → 1条指令</p>
+<p class="E"><span class="bx">总计: 2条 ← <span class="x">3条</span></span></p>
+<hr>
+<p class="L">实际计算, x = [1, 3, 2, 4], m = 4:</p>
+<p class="L i1">m·s = 4 × 1.4427 = 5.7708</p>
+<p class="L i1">x₁·s = 1 × 1.4427 = 1.4427 → 2<sup>1.4427−5.7708</sup> = 2<sup>−4.3281</sup> ≈ 0.0498</p>
+<p class="L i1">x₂·s = 3 × 1.4427 = 4.3281 → 2<sup>4.3281−5.7708</sup> = 2<sup>−1.4427</sup> ≈ 0.3679</p>
+<p class="L i1">x₃·s = 2 × 1.4427 = 2.8854 → 2<sup>2.8854−5.7708</sup> = 2<sup>−2.8854</sup> ≈ 0.1353</p>
+<p class="L i1">x₄·s = 4 × 1.4427 = 5.7708 → 2<sup>0</sup> = 1</p>
+<p class="L">sum = 1.553, softmax = <span class="bx">[0.032, 0.237, 0.087, 0.644]</span></p>
+<p class="N i1">与 expf 计算结果完全一致 ✓</p>
+<div class="pn">1 / 9</div>
+</div>
+
+<!-- P2: Online rescale -->
+<div class="pg">
+<p class="L"><span class="u">Online Softmax: 跨块修正</span></p>
+<p class="L">tiling: 每次只能看 B<sub>c</sub> 个元素, 全局 max 未知</p>
+<hr>
+<p class="L"><span class="N c">第1块</span> x<sup>(1)</sup> = [1, 3]:</p>
+<p class="L i1">m<sup>(1)</sup> = 3, &nbsp; ℓ<sup>(1)</sup> = Σ exp2f((x−3)·s)</p>
+<p class="L i1">= 2<sup>−2s</sup> + 2<sup>0</sup> = 0.1353 + 1 = 1.1353</p>
+<hr>
+<p class="L"><span class="N c">第2块</span> x<sup>(2)</sup> = [2, 4]:</p>
+<p class="L i1">m<sup>(2)</sup> = 4, &nbsp; ℓ<sup>(2)</sup> = 0.1353 + 1 = 1.1353</p>
+<hr>
+<p class="L"><span class="u">修正</span>: m<sup>(new)</sup> = max(3, 4) = 4</p>
+<p class="L">修正因子:</p>
+<p class="E l">α = exp2f((m<sup>(old)</sup> − m<sup>(new)</sup>) · s) = exp2f((3−4) · 1.4427) = 2<sup>−1.4427</sup></p>
+<p class="E l">= e<sup>−1</sup> ≈ 0.3679</p>
+<hr>
+<p class="L">修正旧的累加器:</p>
+<p class="L i1">ℓ<sup>(new)</sup> = <span class="g">α</span> · ℓ<sup>(1)</sup> + ℓ<sup>(2)</sup> = 0.3679 × 1.1353 + 1.1353</p>
+<p class="L i1">= 0.4177 + 1.1353 = <span class="u">1.553</span></p>
+<p class="L i1">O<sup>(new)</sup> = <span class="g">α</span> · O<sup>(1)</sup> + O<sup>(2)</sup> <span class="N">(同理修正输出累加器)</span></p>
+<hr>
+<p class="L">最终: softmax<sub>i</sub> = <span class="f"><span class="n">O<sup>(new)</sup><sub>i</sub></span><span class="d">ℓ<sup>(new)</sup></span></span></p>
+<p class="L">→ <span class="bx">[0.032, 0.237, 0.087, 0.644]</span> <span class="N">与标准做法一致 ✓</span></p>
+<hr>
+<p class="L">IO 复杂度:</p>
+<p class="E l">标准: Θ(Nd + N²) &nbsp;← 需存 N×N 注意力矩阵</p>
+<p class="E l">FA2: <span class="bx">Θ(N²d² / M)</span> &nbsp;← M = SRAM大小</p>
+<div class="pn">2 / 9</div>
+</div>
+
+<!-- P3: FP8 scaling -->
+<div class="pg">
+<p class="L"><span class="u">FP8 动态缩放数学</span></p>
+<hr>
+<p class="L">两种8位格式:</p>
+<div class="B">
+  <span class="B-l">{</span>
+  <div class="B-c">
+    <p class="L">E4M3: 4指数+3尾数, max = <span class="b">448</span>, 精度高</p>
+    <p class="L">E5M2: 5指数+2尾数, max = <span class="b">57344</span>, 范围大</p>
+  </div>
+</div>
+<p class="L">混合: 前向 E4M3, 反向 E5M2</p>
+<hr>
+<p class="L"><span class="u">缩放因子计算</span>:</p>
+<p class="E">sf = <span class="f"><span class="n">FP8_MAX</span><span class="d">amax</span></span> · <span class="f"><span class="n">1</span><span class="d">2<sup>margin</sup></span></span></p>
+<p class="L">边界情况:</p>
+<div class="B">
+  <span class="B-l">{</span>
+  <div class="B-c">
+    <p class="L">amax = 0 → sf 保持上一轮的值</p>
+    <p class="L">amax = ∞ 或 NaN → sf 保持上一轮的值</p>
+    <p class="L">sf → ∞ (amax太小) → sf = FP32_MAX</p>
+    <p class="L">正常情况 → sf = FP8_MAX / (amax · 2<sup>margin</sup>)</p>
+  </div>
+</div>
+<hr>
+<p class="L"><span class="u">量化误差</span>:</p>
+<p class="E l">|x − x̂| ≤ <span class="f"><span class="n">amax</span><span class="d">2<sup>m+1</sup></span></span> <span class="N">(m=尾数位数)</span></p>
+<p class="L i1">E4M3 (m=3): ε ≤ amax/16</p>
+<p class="L i1">E5M2 (m=2): ε ≤ amax/8</p>
+<hr>
+<p class="L"><span class="u">FP4 (E2M1)</span>: max = <span class="b">6</span>, 仅16个值</p>
+<p class="L i1">m=1 → ε ≤ amax/4 → <span class="r">相对误差 ~25%</span></p>
+<p class="L i1">→ 必须 block scaling (每32个共享1个scale)</p>
+<p class="E l">MXFP4: sf<sub>block</sub> = <span class="f"><span class="n">6</span><span class="d">max(|x<sub>i</sub>|, i∈block)</span></span></p>
+<div class="pn">3 / 9</div>
+</div>
+
+<!-- P4: GEMM Roofline -->
+<div class="pg">
+<p class="L"><span class="u">GEMM Tiling 与 Roofline</span></p>
+<p class="L">C[M,N] = A[M,K] · B[K,N], 分块 B<sub>M</sub>×B<sub>N</sub>×B<sub>K</sub></p>
+<hr>
+<p class="L">每 tile 计算量: 2·B<sub>M</sub>·B<sub>N</sub>·B<sub>K</sub> FLOPs</p>
+<p class="L">每 tile 访存量: 2·(B<sub>M</sub>·B<sub>K</sub> + B<sub>K</sub>·B<sub>N</sub>) bytes</p>
+<p class="L">算术强度:</p>
+<p class="E l">I = <span class="f"><span class="n">B<sub>M</sub>·B<sub>N</sub>·B<sub>K</sub></span><span class="d">B<sub>M</sub>·B<sub>K</sub> + B<sub>K</sub>·B<sub>N</sub></span></span> = <span class="f"><span class="n">B<sub>M</sub>·B<sub>N</sub></span><span class="d">B<sub>M</sub> + B<sub>N</sub></span></span></p>
+<hr>
+<p class="L">A100: 峰值 312 TFLOPS, HBM 2.0 TB/s</p>
+<p class="E l">I<sub>balance</sub> = <span class="f"><span class="n">312</span><span class="d">2.0</span></span> = 156 FLOPs/byte</p>
+<p class="L">代入 B<sub>M</sub>=B<sub>N</sub>=b:</p>
+<p class="E l">I = <span class="f"><span class="n">b</span><span class="d">2</span></span> → b = 312 才平衡 → <span class="r">SRAM放不下</span></p>
+<hr>
+<p class="L"><span class="u">Hopper 改进</span>: TMA异步+双缓冲 (kStages=2)</p>
+<p class="L i1">stage 0: wgmma 消费 SMEM 中 tile<sub>k</sub></p>
+<p class="L i1">stage 1: TMA 从 HBM 异步加载 tile<sub>k+1</sub></p>
+<p class="L i1">→ 计算和访存 <span class="g">完全重叠</span></p>
+<hr>
+<p class="L"><span class="u">FA 的 SRAM 约束</span>:</p>
+<p class="E l">B<sub>r</sub>·d + B<sub>c</sub>·d + B<sub>r</sub>·B<sub>c</sub> ≤ M<sub>SRAM</sub></p>
+<p class="L i1">A100: M = 192KB, d=128, BF16:</p>
+<p class="L i1">B<sub>r</sub>×256 + B<sub>c</sub>×256 + B<sub>r</sub>×B<sub>c</sub>×2 ≤ 196608</p>
+<p class="L i1">B<sub>r</sub>=B<sub>c</sub>=64 → 32768+32768+8192 = 73728 ✓</p>
+<p class="L i1">B<sub>r</sub>=128, B<sub>c</sub>=64 → 65536+32768+16384 = 114688 ✓</p>
+<div class="pn">4 / 9</div>
+</div>
+
+<!-- P5: Ring AllReduce -->
+<div class="pg">
+<p class="L"><span class="u">Ring AllReduce 通信量</span></p>
+<p class="L">p 个 GPU, 数据 N, 带宽 B, 延迟 α</p>
+<hr>
+<p class="L">阶段1: Reduce-Scatter, p−1 步</p>
+<p class="L i1">GPU<sub>i</sub> 发 chunk[(i + p − j) mod p], 大小 N/p</p>
+<p class="L i1">step 0: directSend</p>
+<p class="L i1">step 1..p−2: recv + reduce + send</p>
+<p class="L i1">step p−1: recv + reduce + copy + send (最终归约)</p>
+<hr>
+<p class="L">阶段2: AllGather, p−1 步</p>
+<p class="L i1">step 1..p−2: recv + copy + send</p>
+<p class="L i1">step p−1: recv (最终接收)</p>
+<hr>
+<p class="L">总通信量:</p>
+<p class="E"><span class="bx">T = 2(p−1)α + 2·<span class="f"><span class="n">p−1</span><span class="d">p</span></span>·<span class="f"><span class="n">N</span><span class="d">B</span></span></span></p>
+<p class="L">例: p=8, N=1GB, B=300GB/s (NVLink), α=1μs</p>
+<p class="L i1">= 2×7×0.001 + 2×<span class="f"><span class="n">7</span><span class="d">8</span></span>×<span class="f"><span class="n">1</span><span class="d">300</span></span> = 0.014 + 0.00583</p>
+<p class="L i1">= 0.0198 s ≈ <span class="bx">20 ms</span></p>
+<hr>
+<p class="L">跨节点 (IB): B=50GB/s, α=5μs, p=128</p>
+<p class="L i1">= 2×127×0.005 + 2×<span class="f"><span class="n">127</span><span class="d">128</span></span>×<span class="f"><span class="n">1</span><span class="d">50</span></span></p>
+<p class="L i1">= 1.27 + 0.0396 = <span class="bx">1.31 s</span> <span class="N">(← <span class="r">延迟主导!</span>)</span></p>
+<p class="N i1">解决: 分层 — 节点内 NVLS, 节点间 Ring/Tree</p>
+<div class="pn">5 / 9</div>
+</div>
+
+<!-- P6: 3D parallel memory -->
+<div class="pg">
+<p class="L"><span class="u">3D 并行内存分析</span></p>
+<p class="E">W = TP × PP × DP</p>
+<hr>
+<p class="L"><span class="u">每GPU内存</span> (BF16 + Adam):</p>
+<div class="B">
+  <span class="B-l">{</span>
+  <div class="B-c">
+    <p class="L">参数: <span class="f"><span class="n">2Φ</span><span class="d">TP·PP</span></span></p>
+    <p class="L">梯度: <span class="f"><span class="n">2Φ</span><span class="d">TP·PP</span></span></p>
+    <p class="L">Adam (fp32 p+m+v): <span class="f"><span class="n">12Φ</span><span class="d">TP·PP</span></span></p>
+    <p class="L">激活: <span class="f"><span class="n">34·b·s·h·L</span><span class="d">TP·PP</span></span></p>
+  </div>
+</div>
+<hr>
+<p class="L"><span class="u">ZeRO 叠加在 DP 上</span>:</p>
+<p class="L i1">partition_size = flat_params / dp_world_size</p>
+<p class="L">ZeRO-1: 优化器分 DP 份 → <span class="f"><span class="n">12Φ</span><span class="d">TP·PP·DP</span></span></p>
+<p class="L">ZeRO-2: +梯度 → <span class="f"><span class="n">(12+2)Φ</span><span class="d">TP·PP·DP</span></span></p>
+<p class="L">ZeRO-3: +参数 → <span class="f"><span class="n">16Φ</span><span class="d">TP·PP·DP</span></span> = <span class="f"><span class="n">16Φ</span><span class="d">W</span></span></p>
+<hr>
+<p class="L">例: Φ=175B, TP=8, PP=16, DP=8, ZeRO-1</p>
+<p class="L i1">W = 1024</p>
+<p class="L i1">参数: <span class="f"><span class="n">2×175B</span><span class="d">128</span></span> = 2.73B → 2.73 GB</p>
+<p class="L i1">梯度: 2.73 GB</p>
+<p class="L i1">Adam: <span class="f"><span class="n">12×175B</span><span class="d">128×8</span></span> = 2.05B → <span class="g">2.05 GB</span> <span class="N">(ZeRO-1)</span></p>
+<p class="L i1">总: 2.73+2.73+2.05 = <span class="bx">7.51 GB</span></p>
+<p class="N i1">A100 80GB → 剩余 72GB 给激活和临时缓冲</p>
+<div class="pn">6 / 9</div>
+</div>
+
+<!-- P7: Pipeline Bubble -->
+<div class="pg">
+<p class="L"><span class="u">Pipeline 1F1B Bubble</span></p>
+<p class="L">p 个 stage, m 个 micro-batch</p>
+<hr>
+<p class="L">非 interleaved 1F1B:</p>
+<p class="L i1">stage<sub>i</sub> warmup = (p − i − 1) 次 forward</p>
+<p class="L i1">stage<sub>0</sub>: warmup = p−1, &nbsp; stage<sub>p−1</sub>: warmup = 0</p>
+<p class="E l">bubble = <span class="f"><span class="n">p − 1</span><span class="d">m</span></span></p>
+<p class="L i1">p=16, m=32 → <span class="r">46.9%</span></p>
+<hr>
+<p class="L">Interleaved (v 个 virtual chunk):</p>
+<p class="L i1">warmup = (p − rank − 1) × 2 + (v−1) × group_size</p>
+<p class="E"><span class="bx">bubble ≈ <span class="f"><span class="n">p − 1</span><span class="d">m · v</span></span></span></p>
+<p class="L i1">p=16, m=32, v=4 → <span class="g">11.7%</span></p>
+<p class="L i1">代价: 通信 ×v, 且 m mod group_size 需 ≥ p</p>
+<p class="L i2">否则尾部 micro-batch 组产生依赖 bubble</p>
+<hr>
+<p class="L"><span class="u">MFU</span>:</p>
+<p class="E l">MFU = <span class="f"><span class="n">6ΦD</span><span class="d">T · W · F<sub>peak</sub></span></span> ≈ η<sub>bubble</sub> · η<sub>comm</sub> · η<sub>recomp</sub> · η<sub>mem</sub></p>
+<p class="L">12288 GPU 实测:</p>
+<p class="L i1">η<sub>bubble</sub>=0.883, η<sub>comm</sub>=0.94, η<sub>recomp</sub>=0.95, η<sub>mem</sub>=0.97</p>
+<p class="L i1">Π = <span class="bx"><span class="g">55.2%</span></span></p>
+<div class="pn">7 / 9</div>
+</div>
+
+<!-- P8: 万卡故障 -->
+<div class="pg">
+<p class="L"><span class="u">万卡集群故障数学</span></p>
+<p class="L">N GPU, 单卡故障率 λ (次/小时)</p>
+<hr>
+<p class="L">至少1次故障的概率:</p>
+<p class="E">P(≥1) = 1 − (1−λ)<sup>N</sup> ≈ 1 − e<sup>−Nλ</sup></p>
+<p class="L">MTBF (两次故障间平均时间):</p>
+<p class="E l">MTBF = <span class="f"><span class="n">1</span><span class="d">Nλ</span></span></p>
+<hr>
+<p class="L">代入 λ = 10⁻⁵ /hr:</p>
+<p class="L i1">N = 1000: MTBF = 100 hr, P = 1%/hr</p>
+<p class="L i1">N = 10000: MTBF = 10 hr, P = <span class="b">9.5%/hr</span></p>
+<p class="L i1">N = 100000: MTBF = <span class="r">1 hr</span>, P = <span class="r">63%/hr</span></p>
+<hr>
+<p class="L"><span class="u">Checkpoint 约束</span>:</p>
+<p class="E l">T<sub>ckpt</sub> + T<sub>restore</sub> ≪ MTBF</p>
+<p class="L">175B × 2 bytes = 350 GB</p>
+<p class="L i1">写入 NVMe ~10 GB/s → T<sub>ckpt</sub> ≈ 35 s</p>
+<p class="L i1">写入分布式FS ~2 GB/s → T<sub>ckpt</sub> ≈ 175 s ← <span class="r">太慢!</span></p>
+<p class="L">→ 必须异步 checkpoint + 本地NVMe暂存</p>
+<hr>
+<p class="L"><span class="u">浪费训练时间占比</span>:</p>
+<p class="E l">waste = <span class="f"><span class="n">T<sub>ckpt</sub> + T<sub>restore</sub></span><span class="d">MTBF</span></span></p>
+<p class="L i1">异步ckpt 35s, restore 60s, MTBF=1hr:</p>
+<p class="E l">waste = <span class="f"><span class="n">95</span><span class="d">3600</span></span> ≈ <span class="bx">2.6%</span> <span class="N">(可接受)</span></p>
+<div class="pn">8 / 9</div>
+</div>
+
+<!-- P9: TAOCP -->
+<div class="pg">
+<p class="L"><span class="u">TAOCP 视角批判</span></p>
+<hr>
+<p class="L">Knuth 五性质 — Online Softmax:</p>
+<p class="L i1">① 有穷: ⌈N/B<sub>c</sub>⌉ 块, 有限循环 ✓</p>
+<p class="L i1">② 确定: 每步 max + exp2f + sum, 无歧义 ✓</p>
+<p class="L i1">③ 输入: Q, K, V ∈ ℝ<sup>N×d</sup></p>
+<p class="L i1">④ 输出: O = softmax(QK<sup>T</sup>/√d) · V</p>
+<p class="L i1">⑤ 有效: 每步有界计算量 ✓</p>
+<hr>
+<p class="L"><span class="r">用户角度批判</span>:</p>
+<p class="L i1">1. exp2f 精度: s 截断为 float32 → 每次误差 ~2<sup>−23</sup></p>
+<p class="L i2">N=128K → 累积 ~10<sup>5</sup>×2<sup>−23</sup> ≈ 0.012</p>
+<p class="L i2">长序列尾部 softmax 概率偏移 ~1% → <span class="r">悄悄影响注意力模式</span></p>
+<p class="L i1">2. FP8 scale: amax=0 时 sf 保持旧值 → 若首次 amax=0</p>
+<p class="L i2">scale 初始化为 1, 则 448/1 过大 → <span class="r">首batch溢出</span></p>
+<p class="L i1">3. η<sub>bubble</sub> × η<sub>comm</sub> 假设独立</p>
+<p class="L i2">实际: 梯度通信可隐藏在 bubble 中 → <span class="u">乘法低估 MFU</span></p>
+<hr>
+<p class="L"><span class="r">系统角度批判</span>:</p>
+<p class="L i1">1. Ring vs Tree reduce顺序不同: (a+b)+c ≠ a+(b+c)</p>
+<p class="L i2">→ 拓扑切换 = 训练不可复现</p>
+<p class="L i1">2. ZeRO-3 + TP 不兼容: AllGather恢复参数后才能 TP</p>
+<p class="L i2">→ 通信量翻倍, 实际不被同时使用</p>
+<p class="L i1">3. Interleaved PP 要求 m mod group_size ≥ p</p>
+<p class="L i2">→ 否则尾部产生依赖 bubble, <span class="r">静默性能退化</span></p>
+<div class="pn">9 / 9</div>
+</div>
+
+</div>
+
+<script>
+const P=document.querySelectorAll('.pg'),T=document.querySelectorAll('nav button');
+function go(i,b){P.forEach(p=>p.classList.remove('on'));T.forEach(t=>t.classList.remove('on'));P[i].classList.add('on');b.classList.add('on')}
+</script>
+</body>
+</html>

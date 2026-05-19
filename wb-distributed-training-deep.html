@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板书 — 工程深水区: 万卡集群与分布式训练</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap');
+  :root{
+    --paper:#fcfbf7;--ink:#1a1a1a;--ink2:#3a3a3a;--dim:#555;
+    --red:#b03030;--blue:#1a4a7a;--green:#1a6a3a;
+    --rule:rgba(0,0,0,0.04);--margin-line:rgba(200,60,60,0.12);
+    --hand:'Caveat',cursive;--hand2:'Kalam',cursive;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#e8e6e0;min-height:100vh;padding:16px;display:flex;flex-direction:column;align-items:center}
+
+  .paper{
+    background:var(--paper);max-width:780px;width:100%;
+    padding:40px 48px 48px 72px;position:relative;
+    box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.04),2px 2px 0 rgba(0,0,0,.02);
+    background-image:repeating-linear-gradient(transparent,transparent 31px,var(--rule) 31px,var(--rule) 32px);
+    background-position:0 38px;margin-bottom:16px;
+  }
+  .paper::before{content:'';position:absolute;left:56px;top:0;bottom:0;width:1px;background:var(--margin-line)}
+
+  .nav{max-width:780px;width:100%;display:flex;gap:0;margin-bottom:2px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .nav::-webkit-scrollbar{height:0}
+  .tab{
+    font-family:var(--hand);font-size:1.08rem;font-weight:600;
+    padding:8px 16px;background:#eae8e2;border:1px solid #d0cdc4;border-bottom:none;
+    border-radius:6px 6px 0 0;cursor:pointer;color:var(--dim);
+    transition:background .15s;white-space:nowrap;flex-shrink:0;
+  }
+  .tab:hover{background:#f0eeea}
+  .tab.on{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--paper);position:relative;z-index:2}
+
+  .L{font-family:var(--hand);font-size:1.35rem;color:var(--ink);line-height:2.05;margin:0}
+  .L.i1{padding-left:32px}.L.i2{padding-left:64px}.L.i3{padding-left:96px}
+  .E{font-family:var(--hand2);font-size:1.25rem;color:var(--ink);line-height:2.2;text-align:center;display:block;margin:2px 0}
+  .E.l{text-align:left;padding-left:64px}
+  .N{font-family:var(--hand);font-size:1.05rem;color:var(--dim);line-height:1.8}
+  .N.c{display:inline-block;border:1.5px solid var(--dim);border-radius:50%;padding:0 8px;margin:0 2px}
+  .del{text-decoration:line-through;text-decoration-color:#888;color:#888}
+  .u{text-decoration:underline;text-decoration-style:wavy;text-underline-offset:3px;text-decoration-thickness:1.5px;text-decoration-color:var(--ink2)}
+  .r{color:var(--red)}.b{color:var(--blue)}.g{color:var(--green)}
+  .F{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;line-height:1.1}
+  .F .n{border-bottom:1.5px solid var(--ink);padding:0 4px 2px;font-size:.95em}
+  .F .d{padding:2px 4px 0;font-size:.95em}
+  .B{display:flex;align-items:stretch;margin:4px 0 4px 32px;gap:6px}
+  .BL{font-family:var(--hand2);font-size:3.5rem;line-height:1;color:#222;display:flex;align-items:center;font-weight:300;transform:scaleY(1.3)}
+  .BC{display:flex;flex-direction:column;justify-content:center;gap:0}
+  .box{display:inline-block;border:2px solid var(--ink);border-radius:2px;padding:2px 10px;margin:4px 0;transform:rotate(-.3deg)}
+  hr.div{border:none;border-top:1px dashed rgba(0,0,0,.12);margin:10px 0}
+  .pn{text-align:right;font-family:var(--hand);font-size:1rem;color:rgba(0,0,0,.18);margin-top:16px}
+  .pg{display:none}.pg.on{display:block}
+
+  @media(max-width:600px){
+    .paper{padding:24px 16px 32px 40px}.paper::before{left:28px}
+    .L{font-size:1.15rem;line-height:1.9}.E{font-size:1.1rem}
+    .L.i1{padding-left:20px}.L.i2{padding-left:40px}.L.i3{padding-left:60px}
+    .B{margin-left:16px}.tab{font-size:.92rem;padding:6px 10px}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media print{body{background:#fff;padding:0}.nav{display:none}.paper{box-shadow:none;break-inside:avoid;page-break-after:always}.pg{display:block!important}}
+</style>
+</head>
+<body>
+
+<div class="nav" role="tablist">
+  <button class="tab on" onclick="go(0,this)">① Ring通信量</button>
+  <button class="tab" onclick="go(1,this)">② ZeRO内存</button>
+  <button class="tab" onclick="go(2,this)">③ 3D并行</button>
+  <button class="tab" onclick="go(3,this)">④ Pipeline Bubble</button>
+  <button class="tab" onclick="go(4,this)">⑤ Muon迭代</button>
+  <button class="tab" onclick="go(5,this)">⑥ TAOCP批判</button>
+</div>
+
+<div class="paper">
+
+<!-- ========== P1: Ring AllReduce ========== -->
+<div class="pg on" id="p1">
+<p class="L">Ring AllReduce — p 个GPU, 梯度 N 个元素.</p>
+<p class="L">分两阶段: Reduce-Scatter + AllGather.</p>
+<hr class="div">
+<p class="L"><span class="u">Reduce-Scatter</span>: 每GPU切 p 块, 每块 <span class="F"><span class="n">N</span><span class="d">p</span></span></p>
+<p class="L i1">step 0: GPU<sub>i</sub> 把 chunk (i−1)%p 发给 GPU<sub>(i+1)%p</sub></p>
+<p class="L i1">step j (j=1..p−2): 收 → <span class="r">累加</span> → 转发</p>
+<p class="L i1">共 p−1 步, 每步 <span class="F"><span class="n">N</span><span class="d">p</span></span>, 完成后每GPU持有 <span class="F"><span class="n">1</span><span class="d">p</span></span> 的全局和</p>
+<hr class="div">
+<p class="L"><span class="u">AllGather</span>: 同样 p−1 步, 每步 <span class="F"><span class="n">N</span><span class="d">p</span></span></p>
+<p class="L i1">完成后: 每GPU拥有完整 N 个归约结果</p>
+<hr class="div">
+<p class="L">总通信量:</p>
+<p class="E"><span class="box">T<sub>ring</sub> = 2 · <span class="F"><span class="n">p − 1</span><span class="d">p</span></span> · N</span></p>
+<p class="L i1">当 p 很大: T → 2N, 与 GPU 数无关 ← <span class="u">带宽最优</span></p>
+<p class="L i1">延迟 = 2(p−1) · α <span class="N">← 延迟不最优, 大 p 时 Tree 更好</span></p>
+<hr class="div">
+<p class="L">α-β 通信模型:</p>
+<p class="E l">T = 2(p−1) · α + 2 · <span class="F"><span class="n">p−1</span><span class="d">p</span></span> · <span class="F"><span class="n">N</span><span class="d">B</span></span></p>
+<p class="N i1">α = 启动延迟, B = 链路带宽</p>
+<p class="N i1">N 大 → 带宽项主导 → Ring 最优; N 小 → 延迟项主导 → Tree 最优</p>
+<div class="pn">1 / 6</div>
+</div>
+
+<!-- ========== P2: ZeRO ========== -->
+<div class="pg" id="p2">
+<p class="L"><span class="u">ZeRO 三阶段内存分析</span></p>
+<p class="L">模型 Φ 参数, DP 组大小 N<sub>d</sub>, Adam 优化器.</p>
+<hr class="div">
+<p class="L">标准 DP, 每GPU内存:</p>
+<p class="E l">M<sub>std</sub> = 2Φ + 2Φ + (4Φ + 4Φ + 4Φ) = <span class="box">16Φ</span></p>
+<p class="N i2">参数(bf16) + 梯度(bf16) + Adam(fp32参数+动量+方差)</p>
+<hr class="div">
+<p class="L"><span class="N c">S1</span> ZeRO Stage 1 — 切分优化器状态:</p>
+<p class="E l">M<sub>1</sub> = 2Φ + 2Φ + <span class="F"><span class="n">12Φ</span><span class="d">N<sub>d</sub></span></span> = 4Φ + <span class="F"><span class="n">12Φ</span><span class="d">N<sub>d</sub></span></span></p>
+<hr class="div">
+<p class="L"><span class="N c">S2</span> ZeRO Stage 2 — 再切梯度:</p>
+<p class="E l">M<sub>2</sub> = 2Φ + <span class="F"><span class="n">2Φ + 12Φ</span><span class="d">N<sub>d</sub></span></span> = 2Φ + <span class="F"><span class="n">14Φ</span><span class="d">N<sub>d</sub></span></span></p>
+<hr class="div">
+<p class="L"><span class="N c">S3</span> ZeRO Stage 3 — 再切参数:</p>
+<p class="E l"><span class="box">M<sub>3</sub> = <span class="F"><span class="n">2Φ + 2Φ + 12Φ</span><span class="d">N<sub>d</sub></span></span> = <span class="F"><span class="n">16Φ</span><span class="d">N<sub>d</sub></span></span></span></p>
+<hr class="div">
+<p class="L">例: Φ = 175B, N<sub>d</sub> = 64</p>
+<p class="L i1">标准 DP: 16 × 175B × 2B = 5.6 TB / GPU ← <span class="r">不可能</span></p>
+<p class="L i1">ZeRO-3: <span class="F"><span class="n">5.6TB</span><span class="d">64</span></span> = <span class="g">87.5 GB/GPU</span> ← 放进 A100 80GB? <span class="r">仍需卸载</span></p>
+<p class="N i1">通信代价: S3 需 AllGather参数(前向+后向) + ReduceScatter梯度</p>
+<div class="pn">2 / 6</div>
+</div>
+
+<!-- ========== P3: 3D并行 ========== -->
+<div class="pg" id="p3">
+<p class="L"><span class="u">3D 并行</span></p>
+<p class="L">W = 总GPU数, Φ = 参数, L = 层数</p>
+<p class="E">W = TP × PP × DP</p>
+<hr class="div">
+<p class="L"><span class="N c">TP</span> 层内切: GEMM Y = XA</p>
+<p class="L i1">按列切 A = [A₁ | ··· | A<sub>t</sub>], Y<sub>i</sub> = XA<sub>i</sub></p>
+<p class="L i1">前向: AllReduce 合并, 通信 = <span class="F"><span class="n">2(t−1)</span><span class="d">t</span></span> · bsh</p>
+<p class="L i1">每GPU参数 = <span class="F"><span class="n">Φ<sub>layer</sub></span><span class="d">TP</span></span></p>
+<hr class="div">
+<p class="L"><span class="N c">PP</span> 层间切: L 层 → PP 段</p>
+<p class="L i1">每段 = <span class="F"><span class="n">L</span><span class="d">PP</span></span> 层, 仅相邻段通信激活</p>
+<p class="L i1">每GPU参数 = <span class="F"><span class="n">Φ</span><span class="d">TP · PP</span></span></p>
+<hr class="div">
+<p class="L"><span class="N c">DP</span> 数据切: 每 rank 完整模型副本, 不同数据</p>
+<p class="L i1">DP = <span class="F"><span class="n">W</span><span class="d">TP × PP</span></span>, 通信 = AllReduce 梯度</p>
+<hr class="div">
+<p class="L"><span class="u">每GPU总内存</span>:</p>
+<div class="B">
+  <span class="BL">{</span>
+  <div class="BC">
+    <p class="L">参数: <span class="F"><span class="n">2Φ</span><span class="d">TP · PP</span></span></p>
+    <p class="L">Adam: <span class="F"><span class="n">12Φ</span><span class="d">TP · PP · DP</span></span> <span class="N">(+ZeRO-1)</span></p>
+    <p class="L">激活: <span class="F"><span class="n">bshL · 34</span><span class="d">TP · PP</span></span> <span class="N">(无recomp)</span></p>
+  </div>
+</div>
+<p class="L">例: 175B, TP=8, PP=16, DP=8 → W = <span class="box">1024</span></p>
+<p class="L i1">每GPU参数 = <span class="F"><span class="n">350GB</span><span class="d">128</span></span> = 2.73 GB ✓</p>
+<div class="pn">3 / 6</div>
+</div>
+
+<!-- ========== P4: Pipeline Bubble ========== -->
+<div class="pg" id="p4">
+<p class="L"><span class="u">Pipeline Bubble</span></p>
+<p class="L">p = stage数, m = micro-batch数</p>
+<hr class="div">
+<p class="L">GPipe: 全部 F 完再全部 B</p>
+<p class="E l">bubble<sub>GPipe</sub> = <span class="F"><span class="n">p − 1</span><span class="d">m</span></span></p>
+<p class="L i1">p=16, m=32: <span class="F"><span class="n">15</span><span class="d">32</span></span> = <span class="r">46.9%</span></p>
+<hr class="div">
+<p class="L">1F1B: warmup (p−i−1)次F → steady交替1F1B → cooldown</p>
+<p class="L i1">bubble 相同, 但峰值激活 = p, 不是 m ← <span class="u">内存优势</span></p>
+<hr class="div">
+<p class="L">Interleaved (v 个虚拟 stage):</p>
+<p class="E"><span class="box">bubble = <span class="F"><span class="n">p − 1</span><span class="d">m · v</span></span></span></p>
+<p class="L i1">v=4: <span class="F"><span class="n">15</span><span class="d">128</span></span> = <span class="g">11.7%</span> ← <span class="del"><span class="r">46.9%</span></span></p>
+<hr class="div">
+<p class="L">注意: m mod (m<sub>group</sub>) 的余数 r 必须满足:</p>
+<p class="E l">r = 0 &nbsp; 或 &nbsp; r ≥ p</p>
+<p class="L i1">否则最后一组micro-batch不够填满pipeline → <span class="r">额外bubble</span></p>
+<hr class="div">
+<p class="L"><span class="u">v的代价</span>: P2P通信 × v, 需满足:</p>
+<p class="E l">v · <span class="F"><span class="n">p−1</span><span class="d">m</span></span> · T<sub>F+B</sub> > v · C<sub>P2P</sub></p>
+<p class="N i1">即 bubble 节省的计算时间 > 额外通信时间</p>
+<p class="N i1">另一种思路: LAMB优化器 → batch↑4× → m↑4× → bubble↓75%</p>
+<div class="pn">4 / 6</div>
+</div>
+
+<!-- ========== P5: Muon Newton-Schulz ========== -->
+<div class="pg" id="p5">
+<p class="L"><span class="u">Muon 优化器 — Newton-Schulz 迭代</span></p>
+<hr class="div">
+<p class="L">目标: 计算 W 的正交分量 W · (W<sup>T</sup>W)<sup>−1/2</sup></p>
+<p class="L">即: 对权重梯度做 "矩阵正交化"</p>
+<hr class="div">
+<p class="L">Newton-Schulz 迭代 (5阶多项式):</p>
+<p class="E">X<sub>k+1</sub> = aX<sub>k</sub> + bX<sub>k</sub><sup>3</sup> + cX<sub>k</sub><sup>5</sup></p>
+<p class="N i1">其中 X<sub>k</sub><sup>3</sup> = X<sub>k</sub>(X<sub>k</sub><sup>T</sup>X<sub>k</sub>), X<sub>k</sub><sup>5</sup> = X<sub>k</sub>(X<sub>k</sub><sup>T</sup>X<sub>k</sub>)²</p>
+<hr class="div">
+<p class="L">系数 (收敛到 A(A<sup>T</sup>A)<sup>−1/2</sup>):</p>
+<div class="B">
+  <span class="BL">{</span>
+  <div class="BC">
+    <p class="L">a = <span class="F"><span class="n">15</span><span class="d">8</span></span> = 1.875</p>
+    <p class="L">b = −<span class="F"><span class="n">10</span><span class="d">8</span></span> = −1.25</p>
+    <p class="L">c = <span class="F"><span class="n">3</span><span class="d">8</span></span> = 0.375</p>
+  </div>
+</div>
+<p class="N i1">收敛条件: σ<sub>max</sub>(X₀) < 1.27 (5阶), 通常5-10次迭代收敛</p>
+<hr class="div">
+<p class="L">每次迭代计算量:</p>
+<p class="L i1">2次矩阵乘: X<sub>k</sub><sup>T</sup>X<sub>k</sub> 和 X<sub>k</sub>(X<sub>k</sub><sup>T</sup>X<sub>k</sub>)</p>
+<p class="L i1">若 W ∈ ℝ<sup>m×n</sup>: 每次迭代 ≈ 4mn² FLOPs</p>
+<p class="L i1">10次迭代: 40mn² <span class="N">← vs Adam 的 3mn (SGD + 两个动量)</span></p>
+<hr class="div">
+<p class="L"><span class="u">万卡分布式实现</span>:</p>
+<p class="L i1">W 按 TP 切分 → X<sub>k</sub><sup>T</sup>X<sub>k</sub> 需 AllReduce (n×n 矩阵)</p>
+<p class="L i1">通信 = 10 × 2·<span class="F"><span class="n">t−1</span><span class="d">t</span></span>·n² <span class="N">(10次迭代, 每次一个AllReduce)</span></p>
+<p class="L i1">当 n=12288 (GPT-3): 每step额外 ≈ <span class="r">28.7 GB AllReduce</span></p>
+<div class="pn">5 / 6</div>
+</div>
+
+<!-- ========== P6: TAOCP批判 ========== -->
+<div class="pg" id="p6">
+<p class="L"><span class="u">TAOCP 视角 — 批判</span></p>
+<hr class="div">
+<p class="L">Knuth §1.3.1: <em>"运行时间取决于实现"</em></p>
+<p class="L i1">Ring 与 Tree FLOPs 相同, 但:</p>
+<p class="E l">T<sub>ring</sub> = 2(p−1)α + 2·<span class="F"><span class="n">p−1</span><span class="d">p</span></span>·<span class="F"><span class="n">N</span><span class="d">B</span></span></p>
+<p class="E l">T<sub>tree</sub> = 2log₂p·α + 2log₂p·<span class="F"><span class="n">N</span><span class="d">B</span></span></p>
+<p class="L i1">选哪个? 取决于 N/B 与 α 的比值 → <span class="u">硬件决定算法</span></p>
+<hr class="div">
+<p class="L"><span class="r">用户角度</span>:</p>
+<p class="L i1">1. ZeRO-3 的 <span class="F"><span class="n">16Φ</span><span class="d">N<sub>d</sub></span></span> 忽略了<span class="u">激活内存</span></p>
+<p class="L i2">实际: M = <span class="F"><span class="n">16Φ</span><span class="d">N<sub>d</sub></span></span> + bshL·34 → 激活可能反超</p>
+<p class="L i1">2. bubble = <span class="F"><span class="n">p−1</span><span class="d">mv</span></span> 中 v↑ → P2P↑, 但公式<span class="r">未反映</span></p>
+<p class="L i2">正确: T<sub>total</sub>(v) = T<sub>comp</sub>(1 − <span class="F"><span class="n">p−1</span><span class="d">mv</span></span>) + v·T<sub>P2P</sub></p>
+<p class="L i2">对 v 求导 = 0 → v* = <span class="F"><span class="n">(p−1)·T<sub>comp</sub></span><span class="d">m·T<sub>P2P</sub></span></span></p>
+<hr class="div">
+<p class="L"><span class="r">系统角度</span>:</p>
+<p class="L i1">1. (a+b)+c ≠ a+(b+c) ← 浮点非结合性</p>
+<p class="L i2">Ring 的 reduce 顺序 ≠ Tree → <span class="u">同代码不同结果</span></p>
+<p class="L i1">2. Muon 每step额外 28.7GB AllReduce</p>
+<p class="L i2">万卡规模: 与梯度AllReduce<span class="u">争抢带宽</span></p>
+<p class="L i2">必须与梯度通信 overlap, 否则 MFU 下降</p>
+<p class="L i1">3. 百万芯片故障率:</p>
+<p class="E l">P(≥1) = 1 − e<sup>−Np<sub>f</sub></sup>, &nbsp; N=10⁵, p<sub>f</sub>=10⁻⁵/hr</p>
+<p class="E l">→ <span class="box"><span class="r">每小时 63% 概率出故障</span></span></p>
+<p class="N i1">→ Checkpoint间隔必须 ≪ MTBF = <span class="F"><span class="n">1</span><span class="d">Np<sub>f</sub></span></span> = 1hr</p>
+<div class="pn">6 / 6</div>
+</div>
+
+</div>
+
+<script>
+const P=document.querySelectorAll('.pg'),T=document.querySelectorAll('.tab');
+function go(i,b){P.forEach(p=>p.classList.remove('on'));T.forEach(t=>t.classList.remove('on'));P[i].classList.add('on');b.classList.add('on')}
+document.querySelector('.nav').addEventListener('keydown',function(e){const i=[...T].indexOf(document.activeElement);if(i<0)return;let n=i;if(e.key==='ArrowRight'||e.key==='ArrowDown')n=(i+1)%T.length;else if(e.key==='ArrowLeft'||e.key==='ArrowUp')n=(i-1+T.length)%T.length;else return;e.preventDefault();T[n].focus();go(n,T[n])});
+</script>
+</body>
+</html>
