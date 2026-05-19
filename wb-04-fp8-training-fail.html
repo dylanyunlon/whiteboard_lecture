@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板书 — FP8 训练失败模式分析 (M004)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap');
+  :root{
+    --paper:#fcfbf7;--ink:#1a1a1a;--ink2:#3a3a3a;--dim:#555;
+    --red:#b03030;--blue:#1a4a7a;--green:#1a6a3a;
+    --rule:rgba(0,0,0,0.04);--margin-line:rgba(200,60,60,0.12);
+    --hand:'Caveat',cursive;--hand2:'Kalam',cursive;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#e8e6e0;min-height:100vh;padding:16px;display:flex;flex-direction:column;align-items:center}
+
+  .paper{
+    background:var(--paper);max-width:780px;width:100%;
+    padding:40px 48px 48px 72px;position:relative;
+    box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.04),2px 2px 0 rgba(0,0,0,.02);
+    background-image:repeating-linear-gradient(transparent,transparent 31px,var(--rule) 31px,var(--rule) 32px);
+    background-position:0 38px;margin-bottom:16px;
+  }
+  .paper::before{content:'';position:absolute;left:56px;top:0;bottom:0;width:1px;background:var(--margin-line)}
+
+  .nav{max-width:780px;width:100%;display:flex;gap:0;margin-bottom:2px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .nav::-webkit-scrollbar{height:0}
+  .tab{
+    font-family:var(--hand);font-size:1.08rem;font-weight:600;
+    padding:8px 16px;background:#eae8e2;border:1px solid #d0cdc4;border-bottom:none;
+    border-radius:6px 6px 0 0;cursor:pointer;color:var(--dim);
+    transition:background .15s;white-space:nowrap;flex-shrink:0;
+  }
+  .tab:hover{background:#f0eeea}
+  .tab.on{background:var(--paper);color:var(--ink);border-bottom:1px solid var(--paper);position:relative;z-index:2}
+
+  .L{font-family:var(--hand);font-size:1.35rem;color:var(--ink);line-height:2.05;margin:0}
+  .L.i1{padding-left:32px}.L.i2{padding-left:64px}.L.i3{padding-left:96px}
+  .E{font-family:var(--hand2);font-size:1.25rem;color:var(--ink);line-height:2.2;text-align:center;display:block;margin:2px 0}
+  .E.l{text-align:left;padding-left:64px}
+  .N{font-family:var(--hand);font-size:1.05rem;color:var(--dim);line-height:1.8}
+  .N.c{display:inline-block;border:1.5px solid var(--dim);border-radius:50%;padding:0 8px;margin:0 2px}
+  .del{text-decoration:line-through;text-decoration-color:#888;color:#888}
+  .u{text-decoration:underline;text-decoration-style:wavy;text-underline-offset:3px;text-decoration-thickness:1.5px;text-decoration-color:var(--ink2)}
+  .r{color:var(--red)}.b{color:var(--blue)}.g{color:var(--green)}
+  .F{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;line-height:1.1}
+  .F .n{border-bottom:1.5px solid var(--ink);padding:0 4px 2px;font-size:.95em}
+  .F .d{padding:2px 4px 0;font-size:.95em}
+  .B{display:flex;align-items:stretch;margin:4px 0 4px 32px;gap:6px}
+  .BL{font-family:var(--hand2);font-size:3.5rem;line-height:1;color:#222;display:flex;align-items:center;font-weight:300;transform:scaleY(1.3)}
+  .BC{display:flex;flex-direction:column;justify-content:center;gap:0}
+  .box{display:inline-block;border:2px solid var(--ink);border-radius:2px;padding:2px 10px;margin:4px 0;transform:rotate(-.3deg)}
+  hr.div{border:none;border-top:1px dashed rgba(0,0,0,.12);margin:10px 0}
+  .pn{text-align:right;font-family:var(--hand);font-size:1rem;color:rgba(0,0,0,.18);margin-top:16px}
+  .pg{display:none}.pg.on{display:block}
+
+  @media(max-width:600px){
+    .paper{padding:24px 16px 32px 40px}.paper::before{left:28px}
+    .L{font-size:1.15rem;line-height:1.9}.E{font-size:1.1rem}
+    .L.i1{padding-left:20px}.L.i2{padding-left:40px}.L.i3{padding-left:60px}
+    .B{margin-left:16px}.tab{font-size:.92rem;padding:6px 10px}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media print{body{background:#fff;padding:0}.nav{display:none}.paper{box-shadow:none;break-inside:avoid;page-break-after:always}.pg{display:block!important}}
+</style>
+</head>
+<body>
+
+<div class="nav" role="tablist">
+  <button class="tab on" onclick="go(0,this)">① E4M3精度</button>
+  <button class="tab" onclick="go(1,this)">② QK<sup>T</sup>值域</button>
+  <button class="tab" onclick="go(2,this)">③ 溢出爆炸</button>
+  <button class="tab" onclick="go(3,this)">④ Softcap限幅</button>
+  <button class="tab" onclick="go(4,this)">⑤ 混合精度</button>
+  <button class="tab" onclick="go(5,this)">⑥ 延迟Scaling</button>
+  <button class="tab" onclick="go(6,this)">⑦ TAOCP批判</button>
+</div>
+
+<div class="paper">
+
+<!-- ========== P1: E4M3 精度分析 ========== -->
+<div class="pg on" id="p1">
+<p class="L"><span class="u">FP8 E4M3 格式精度分析</span></p>
+<p class="L">IEEE-like 8位浮点: 1位符号 + 4位指数 + 3位尾数</p>
+<hr class="div">
+<p class="L">尾数3位 → 隐含1 + 3位显式 = 4位有效精度</p>
+<p class="L i1">相邻可表示值的间距 = 2<sup>e−3</sup></p>
+<p class="L i1">相对舍入误差:</p>
+<p class="E"><span class="box">ε<sub>rel</sub> ≤ 2<sup>−3</sup> = 0.125 = <span class="r">12.5%</span></span></p>
+<hr class="div">
+<p class="L">对比其他格式:</p>
+<div class="B">
+  <span class="BL">{</span>
+  <div class="BC">
+    <p class="L">BF16: 尾数7位 → ε ≤ 2<sup>−7</sup> = <span class="g">0.78%</span></p>
+    <p class="L">FP16: 尾数10位 → ε ≤ 2<sup>−10</sup> = <span class="g">0.098%</span></p>
+    <p class="L">E4M3: 尾数3位 → ε ≤ 2<sup>−3</sup> = <span class="r">12.5%</span></p>
+    <p class="L">E5M2: 尾数2位 → ε ≤ 2<sup>−2</sup> = <span class="r">25%</span></p>
+    <p class="L">E2M1: 尾数1位 → ε ≤ 2<sup>−1</sup> = <span class="r">50%</span></p>
+  </div>
+</div>
+<hr class="div">
+<p class="L">最大可表示值:</p>
+<p class="L i1">E4M3: <span class="box">448</span> &nbsp; E5M2: <span class="box">57344</span> &nbsp; E2M1: <span class="box">6</span></p>
+<p class="L">HYBRID策略: 前向 E4M3(精度优先) / 反向 E5M2(范围优先)</p>
+<p class="N i1">动机: 前向需要更精确的激活, 反向梯度值域更大</p>
+<div class="pn">1 / 7</div>
+</div>
+
+<!-- ========== P2: QK^T 值域分析 ========== -->
+<div class="pg" id="p2">
+<p class="L"><span class="u">Attention 中 QK<sup>T</sup> 的值域分析</span></p>
+<hr class="div">
+<p class="L">设 Q, K ∈ ℝ<sup>N×d</sup>, 每个元素 ~ N(0, σ²)</p>
+<p class="L i1">则 S = QK<sup>T</sup>/√d 的每个元素:</p>
+<p class="E l">S<sub>ij</sub> = <span class="F"><span class="n">1</span><span class="d">√d</span></span> ∑<sub>k=1..d</sub> Q<sub>ik</sub> K<sub>jk</sub></p>
+<hr class="div">
+<p class="L">由中心极限定理:</p>
+<p class="L i1">E[S<sub>ij</sub>] = 0</p>
+<p class="L i1">Var[S<sub>ij</sub>] = <span class="F"><span class="n">1</span><span class="d">d</span></span> · d · σ⁴ = σ⁴</p>
+<p class="L i1">→ S<sub>ij</sub> ~ N(0, σ⁴) (近似)</p>
+<hr class="div">
+<p class="L">但训练后期, Q和K不再独立:</p>
+<p class="L i1">低秩表示涌现 → 某些注意力头中 Q ≈ K</p>
+<p class="L i1">此时 S<sub>ij</sub> 近似 <span class="F"><span class="n">‖q<sub>i</sub>‖² cos(θ)</span><span class="d">√d</span></span></p>
+<hr class="div">
+<p class="L">尾部极端值:</p>
+<p class="E"><span class="box">|S<sub>ij</sub>| 可达 4σ² ≈ 4√d · σ²/√d</span></p>
+<p class="N i1">训练后期 ‖q‖ 增长, 有效方差增大</p>
+<p class="L"><span class="r">关键洞察</span>: <span class="u">未缩放</span>的 QK<sup>T</sup> 的值域:</p>
+<p class="E l">|QK<sup>T</sup><sub>ij</sub>| ~ √d · |S<sub>ij</sub>| ← 可达 <span class="r">4√d · σ²</span></p>
+<p class="N i1">d=128, σ²=1 → |QK<sup>T</sup>| 可达 ~45</p>
+<div class="pn">2 / 7</div>
+</div>
+
+<!-- ========== P3: exp溢出 ========== -->
+<div class="pg" id="p3">
+<p class="L"><span class="u">Softmax 中的 exp 溢出</span></p>
+<hr class="div">
+<p class="L">标准 softmax: P<sub>ij</sub> = <span class="F"><span class="n">exp(S<sub>ij</sub>)</span><span class="d">∑<sub>k</sub> exp(S<sub>ik</sub>)</span></span></p>
+<p class="L i1">FlashAttention 用 exp2f 代替 exp:</p>
+<p class="E l">exp(x) = exp2(x · log₂e) = exp2(x · 1.4427)</p>
+<p class="N i1">← 编译器可用 ffma 融合乘加, 节省1条指令</p>
+<hr class="div">
+<p class="L">当 |QK<sup>T</sup>| 很大时:</p>
+<p class="L i1">d = 128 → |QK<sup>T</sup>| ~ 45</p>
+<p class="E"><span class="box">exp(45) = 3.49 × 10<sup>19</sup></span></p>
+<hr class="div">
+<p class="L">FP8 能表示吗?</p>
+<p class="L i1">E4M3 max = 448 → <span class="r">溢出</span> (差 10<sup>17</sup> 倍)</p>
+<p class="L i1">E5M2 max = 57344 → <span class="r">溢出</span> (差 10<sup>15</sup> 倍)</p>
+<p class="L i1">BF16 max = 3.39 × 10<sup>38</sup> → <span class="g">不溢出</span></p>
+<hr class="div">
+<p class="L"><span class="r">根本矛盾</span>:</p>
+<p class="L i1">FP8 省内存 ← 要存储中间结果 S, P</p>
+<p class="L i1">但 exp 输出的动态范围远超 FP8 能力</p>
+<p class="E"><span class="box">exp 的值域 [0, ∞) vs E4M3 的值域 [0, 448]</span></p>
+<hr class="div">
+<p class="L"><span class="u">BF16 也不安全</span>: 偏向舍入误差累积</p>
+<p class="L i1">BF16 加法中: 小数被大数"吞掉"</p>
+<p class="L i1">当 S 的行内方差大时 → softmax 分母的 <span class="r">偏向误差</span></p>
+<p class="N i1">ICLR'26 发现: 这是低精度训练爆炸的直接原因</p>
+<div class="pn">3 / 7</div>
+</div>
+
+<!-- ========== P4: Softcap ========== -->
+<div class="pg" id="p4">
+<p class="L"><span class="u">解决方案 1: Softcap 限幅</span></p>
+<hr class="div">
+<p class="L">核心思想: 用 tanh 将 QK<sup>T</sup> 限制在有限范围内</p>
+<p class="E"><span class="box">S̃<sub>ij</sub> = c · tanh(<span class="F"><span class="n">S<sub>ij</sub></span><span class="d">c</span></span>)</span></p>
+<p class="L i1">c = softcap 参数, 典型值 c = 30 或 50</p>
+<hr class="div">
+<p class="L">性质:</p>
+<p class="L i1">当 |S| ≪ c: &nbsp; S̃ ≈ S <span class="N">← 小值不变</span></p>
+<p class="L i1">当 |S| ≫ c: &nbsp; S̃ → ±c <span class="N">← 大值被截断</span></p>
+<p class="L i1">值域: S̃ ∈ (−c, +c) <span class="N">← 有界!</span></p>
+<hr class="div">
+<p class="L">截断后 exp 是否安全?</p>
+<p class="L i1">c = 50 → exp(50) = 5.18 × 10<sup>21</sup> → <span class="r">仍然溢出 E4M3</span></p>
+<p class="L i1">c = 30 → exp(30) = 1.07 × 10<sup>13</sup> → <span class="r">仍然溢出 E4M3</span></p>
+<p class="N i1">但配合 online softmax 的 max 减去后:</p>
+<p class="E l">exp(S̃<sub>ij</sub> − max<sub>i</sub>) ∈ [0, 1] ← <span class="g">安全</span></p>
+<hr class="div">
+<p class="L"><span class="u">反向传播</span>:</p>
+<p class="E l"><span class="F"><span class="n">∂S̃</span><span class="d">∂S</span></span> = 1 − tanh²(<span class="F"><span class="n">S</span><span class="d">c</span></span>)</p>
+<p class="L i1">当 |S| ≫ c: 梯度 → 0 ← <span class="r">梯度消失</span></p>
+<p class="L i1">这限制了模型学习尖锐注意力分布的能力</p>
+<hr class="div">
+<p class="L"><span class="r">Trade-off</span>: 数值安全 ←→ 表达能力</p>
+<p class="N i1">Gemma-2 用 softcap=30, Claude 系列也使用类似策略</p>
+<div class="pn">4 / 7</div>
+</div>
+
+<!-- ========== P5: 混合精度 ========== -->
+<div class="pg" id="p5">
+<p class="L"><span class="u">解决方案 2: 混合精度累加</span></p>
+<hr class="div">
+<p class="L">核心思想: 计算用高精度, 存储用低精度</p>
+<div class="B">
+  <span class="BL">{</span>
+  <div class="BC">
+    <p class="L">QK<sup>T</sup> 矩阵乘: FP8 输入, <span class="g">FP32 累加</span></p>
+    <p class="L">softmax: <span class="g">FP32 全程</span></p>
+    <p class="L">P·V 矩阵乘: FP8 输入, <span class="g">FP32 累加</span></p>
+    <p class="L">存储 Q, K, V: <span class="b">FP8</span></p>
+  </div>
+</div>
+<hr class="div">
+<p class="L">内存节省分析 (N=seq_len, d=head_dim, h=heads):</p>
+<p class="L i1">标准 BF16: Q,K,V,O 各 2Nhd bytes</p>
+<p class="E l">M<sub>BF16</sub> = 4 × 2Nhd = <span class="box">8Nhd</span></p>
+<p class="L i1">FP8 存储: Q,K,V,O 各 1Nhd bytes</p>
+<p class="E l">M<sub>FP8</sub> = 4 × 1Nhd = <span class="box">4Nhd</span></p>
+<p class="L i1">节省: <span class="g">50%</span> 激活内存</p>
+<hr class="div">
+<p class="L"><span class="u">split accumulator</span> (Hopper架构):</p>
+<p class="L i1">硬件提供 FP8×FP8 → FP32 的 WGMMA 指令</p>
+<p class="L i1">但快速累加模式(fast_accum)截断中间结果到FP16</p>
+<p class="E l">误差 = O(N · 2<sup>−10</sup>) <span class="N">← N=seq_len 累积</span></p>
+<p class="L i1">split accumulator: 每 k 步做一次 FP32 规约</p>
+<p class="E l">误差 = O(<span class="F"><span class="n">N</span><span class="d">k</span></span> · 2<sup>−10</sup> + k · 2<sup>−23</sup>)</p>
+<p class="N i1">k 的选择: 小k → 精度好但慢, 大k → 快但精度差</p>
+<hr class="div">
+<p class="L"><span class="r">失败模式</span>: 注意力权重 P 的低秩退化</p>
+<p class="L i1">当多行 Q 相似 → S 的多行相似 → 舍入误差<span class="u">相干累积</span></p>
+<p class="L i1">随机误差 O(√N · ε) 变为系统性偏差 O(N · ε)</p>
+<div class="pn">5 / 7</div>
+</div>
+
+<!-- ========== P6: Delayed Scaling ========== -->
+<div class="pg" id="p6">
+<p class="L"><span class="u">FP8 Delayed Scaling 的滞后效应</span></p>
+<hr class="div">
+<p class="L">量化公式:</p>
+<p class="E"><span class="box">sf = <span class="F"><span class="n">FP8_MAX</span><span class="d">amax</span></span> · 2<sup>−margin</sup></span></p>
+<p class="L i1">FP8_MAX: E4M3→448, E5M2→57344</p>
+<p class="L i1">amax: 张量绝对值最大值</p>
+<p class="L i1">margin: 安全余量 (默认 0)</p>
+<hr class="div">
+<p class="L"><span class="u">Delayed Scaling</span>: 用<span class="r">上一步</span>的 amax 计算本步的 sf</p>
+<p class="L i1">amax 历史窗口: H = 1024 步</p>
+<p class="L i1">选择策略: amax = max(H[0..1023]) 或 most_recent</p>
+<hr class="div">
+<p class="L"><span class="r">4 种 edge case</span>:</p>
+<p class="L i1"><span class="N c">1</span> amax = 0 → scale 保持不变</p>
+<p class="L i1"><span class="N c">2</span> 0 &lt; amax &lt; tiny → scale → ∞ → <span class="r">截断为 FP32_MAX</span></p>
+<p class="L i1"><span class="N c">3</span> tiny ≤ amax &lt; ∞ → 正常: sf = scaled_max / amax</p>
+<p class="L i1"><span class="N c">4</span> amax = inf 或 NaN → scale 保持不变</p>
+<hr class="div">
+<p class="L"><span class="r">滞后效应</span>: 当张量值突变时</p>
+<p class="L i1">step t: amax<sub>t</sub> = 10, sf<sub>t</sub> = 448/10 = 44.8</p>
+<p class="L i1">step t+1: 真实 amax = 1000 (梯度突变)</p>
+<p class="L i2">但 sf<sub>t+1</sub> 仍用 amax<sub>t</sub> = 10 → sf = 44.8</p>
+<p class="L i2">量化: 1000 × 44.8 = 44800 > <span class="r">448 → 饱和截断!</span></p>
+<hr class="div">
+<p class="L">截断率:</p>
+<p class="E l">P(clip) = P(|x| > <span class="F"><span class="n">FP8_MAX</span><span class="d">sf</span></span>) = P(|x| > amax<sub>old</sub>)</p>
+<p class="L i1">当分布突变: amax<sub>new</sub> ≫ amax<sub>old</sub> → <span class="r">大量截断</span> → loss spike</p>
+<p class="N i1">生产中观测: loss spike 与 amax 历史更新延迟高度相关</p>
+<div class="pn">6 / 7</div>
+</div>
+
+<!-- ========== P7: TAOCP 批判 ========== -->
+<div class="pg" id="p7">
+<p class="L"><span class="u">TAOCP 视角 — margin 最优值推导与批判</span></p>
+<hr class="div">
+<p class="L"><span class="r">用户角度</span>:</p>
+<p class="L i1"><span class="N c">1</span> softcap 的 c 值选择无理论指导</p>
+<p class="L i2">c 太小 → 梯度消失, attention 分布模糊</p>
+<p class="L i2">c 太大 → 失去保护效果</p>
+<p class="L i2">最优 c*: 使 P(|S| > c) < δ, 即 c* = Φ<sup>−1</sup>(1−δ) · σ<sub>S</sub></p>
+<p class="L i2">但 σ<sub>S</sub> 随训练动态变化 → <span class="r">静态 c 必然次优</span></p>
+<hr class="div">
+<p class="L i1"><span class="N c">2</span> FP8 DPA 的精度-速度 Pareto 前沿未被探索</p>
+<p class="L i2">fp8_dpa=True 把 QKV 全转 FP8 → 速度 ↑</p>
+<p class="L i2">fp8_mha=True 连 LayerNorm 输出也保持 FP8 → 更快</p>
+<p class="L i2">但这两个 flag 的组合空间(4种)哪种最优? <span class="r">无理论</span></p>
+<hr class="div">
+<p class="L"><span class="r">系统角度</span>:</p>
+<p class="L i1"><span class="N c">3</span> margin 参数的最优值推导:</p>
+<p class="L i2">目标: 最小化总误差 = 量化噪声 + 截断损失</p>
+<p class="E l">ε(m) = <span class="F"><span class="n">2<sup>−(b+1)</sup></span><span class="d">1</span></span> · 2<sup>m</sup> + P<sub>clip</sub>(m) · E[|x| &nbsp;|&nbsp; clipped]</p>
+<p class="L i2">margin ↑ → 量化噪声 ↑ (分辨率降低)</p>
+<p class="L i2">margin ↓ → 截断概率 ↑ (更多值溢出)</p>
+<p class="L i2">对 m 求导 = 0 → <span class="box">m* = log₂(<span class="F"><span class="n">P'<sub>clip</sub> · E[|x|]</span><span class="d">ln2 · 2<sup>−(b+1)</sup></span></span>)</span></p>
+<p class="N i2">默认 margin=0 意味着 NVIDIA 假设截断概率极低 ← 对稳定训练成立</p>
+<hr class="div">
+<p class="L i1"><span class="N c">4</span> 跨硬件数值一致性:</p>
+<p class="L i2">NVIDIA FP8: per-tensor scaling, delayed</p>
+<p class="L i2">Trainium MXFP8: per-block scaling, block_size=32</p>
+<p class="L i2">相同超参 → <span class="r">不同 loss 曲线</span> → 错误因果归因</p>
+<hr class="div">
+<p class="L i1"><span class="N c">5</span> 低秩退化 + 偏向舍入 = <span class="u">确定性崩溃</span></p>
+<p class="L i2">非随机故障, Knuth §4.2.2 的舍入分析直接适用:</p>
+<p class="L i2">N 次 BF16 加法的误差上界 = N · 2<sup>−8</sup></p>
+<p class="L i2">当 N = seq_len = 8192: 偏差 = <span class="r">32</span> ulp ← 灾难性</p>
+<p class="N i1">结论: FP8 训练不是"能不能用"而是"在什么条件下会崩"</p>
+<div class="pn">7 / 7</div>
+</div>
+
+</div>
+
+<script>
+const P=document.querySelectorAll('.pg'),T=document.querySelectorAll('.tab');
+function go(i,b){P.forEach(p=>p.classList.remove('on'));T.forEach(t=>t.classList.remove('on'));P[i].classList.add('on');b.classList.add('on')}
+document.querySelector('.nav').addEventListener('keydown',function(e){const i=[...T].indexOf(document.activeElement);if(i<0)return;let n=i;if(e.key==='ArrowRight'||e.key==='ArrowDown')n=(i+1)%T.length;else if(e.key==='ArrowLeft'||e.key==='ArrowUp')n=(i-1+T.length)%T.length;else return;e.preventDefault();T[n].focus();go(n,T[n])});
+</script>
+</body>
+</html>
