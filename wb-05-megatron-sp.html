@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sequence Parallel 激活内存推导</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#fff;display:flex;justify-content:center}
+.page{
+  width:100%;max-width:800px;min-height:100vh;
+  padding:32px 28px 48px 28px;
+  font-family:'Caveat',cursive;font-size:1.42rem;color:#1a1a1a;line-height:2.0;
+}
+.i{padding-left:48px}
+.ii{padding-left:96px}
+.note{font-size:1.15rem;color:#555}
+.red{color:#c0392b}
+.grn{color:#1a7a3a}
+.blu{color:#2471a3}
+.brace{display:inline-flex;align-items:stretch;margin:0 0 0 20px;vertical-align:middle}
+.brace::before{content:'⎧';font-size:1em;line-height:1;margin-right:6px;font-family:serif;display:flex;align-items:center}
+.brace-lg{display:flex;margin:0 0 0 20px}
+.brace-lg::before{content:'{';font-size:4.5rem;line-height:1;font-weight:200;margin-right:10px;display:flex;align-items:center;color:#333;font-family:'Caveat',cursive}
+.brace-lg .inner{display:flex;flex-direction:column;justify-content:center}
+.brace-lg .inner p{line-height:1.75;margin:0}
+.fr{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;margin:0 4px}
+.fr .nu{border-bottom:1.8px solid #1a1a1a;padding:0 4px 2px}
+.fr .de{padding:2px 4px 0}
+.boxed{border:2.5px solid #1a1a1a;padding:1px 10px;display:inline-block;border-radius:1px}
+.strike{text-decoration:line-through;color:#888}
+.arr{font-size:1.1em}
+@media(max-width:600px){.page{padding:18px 12px;font-size:1.18rem;line-height:1.85}.i{padding-left:28px}.ii{padding-left:56px}}
+@media print{.page{padding:20px}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<p>假设一个极简Transformer层, <b>h=4, T=2 (两块GPU)</b></p>
+<p>输入 X = [x₁, x₂, x₃, x₄] ∈ ℝ<sup>4</sup> (一个token, h=4)</p>
+
+<p style="margin-top:8px"><u>标准 TP 做法</u>: 权重 W ∈ ℝ<sup>4×4</sup> 切成左右两半</p>
+<p class="i">GPU₀ 拿 W<sub>left</sub> ∈ ℝ<sup>4×2</sup>,  GPU₁ 拿 W<sub>right</sub> ∈ ℝ<sup>4×2</sup></p>
+
+<p style="margin-top:4px">但 LayerNorm 需要<b>全部4个元素</b>算均值:</p>
+<p class="i">μ = <span class="fr"><span class="nu">x₁+x₂+x₃+x₄</span><span class="de">4</span></span></p>
+<p class="i">→ GPU₀ 和 GPU₁ <span class="red">都必须存完整的 [x₁,x₂,x₃,x₄]</span></p>
+<p class="i"><span class="note">这就是标准 attention 中的冗余操作</span></p>
+
+<p style="margin-top:8px">缺点: 每次读完整X → 内存大, 浪费</p>
+
+<p style="margin-top:12px"><u>Sequence Parallel 的做法</u>:</p>
+<p>假设 seq_len=4, 即4个token, 每个token的h=4</p>
+<p class="i">X ∈ ℝ<sup>4×4</sup> =
+  <span style="font-family:serif">[</span>tok₁, tok₂, tok₃, tok₄<span style="font-family:serif">]</span></p>
+
+<p>关键观察: <b>LN 对每个 token 独立!</b></p>
+<p class="i">LN(tok₁) 只需 tok₁ 的 4 个元素, 不需要 tok₂,₃,₄</p>
+
+<p>所以沿 seq 维切成两块:</p>
+<p class="i">GPU₀ 拿 块1 = [tok₁, tok₂] ∈ ℝ<sup>2×4</sup></p>
+<p class="i">GPU₁ 拿 块2 = [tok₃, tok₄] ∈ ℝ<sup>2×4</sup></p>
+
+<p>先对各块按标准做法:</p>
+<p class="i">GPU₀: LN([tok₁,tok₂]) → 本地完成, <span class="grn">无需通信!</span></p>
+<p class="i">GPU₁: LN([tok₃,tok₄]) → 本地完成, <span class="grn">无需通信!</span></p>
+
+<p style="margin-top:8px"><u>修正操作 — 拼回去做GEMM</u>:</p>
+<p class="i">GEMM 需要完整 X → <span class="blu">AllGather</span>: 2块拼回4个token</p>
+<p class="i">GPU₀: [tok₁,tok₂] <span class="arr">→</span> 收到tok₃,tok₄ <span class="arr">→</span> 完整 [tok₁..₄]</p>
+<p class="i">GPU₁: [tok₃,tok₄] <span class="arr">→</span> 收到tok₁,tok₂ <span class="arr">→</span> 完整 [tok₁..₄]</p>
+
+<p class="i">做完 GEMM 得 Y ∈ ℝ<sup>4×4</sup></p>
+
+<p class="i"><span class="blu">ReduceScatter</span>: Y 归约+切回</p>
+<p class="i">GPU₀ 得 Y<sub>块1</sub> ∈ ℝ<sup>2×4</sup>,  GPU₁ 得 Y<sub>块2</sub> ∈ ℝ<sup>2×4</sup></p>
+
+<p style="margin-top:8px"><u>通信量验证</u>:</p>
+<p class="i">无SP: AllReduce = 2N·<span class="fr"><span class="nu">T−1</span><span class="de">T</span></span> = 2×16×<span class="fr"><span class="nu">1</span><span class="de">2</span></span> = 16</p>
+<p class="i">有SP: AG + RS = 8×<span class="fr"><span class="nu">1</span><span class="de">2</span></span> + 8×<span class="fr"><span class="nu">1</span><span class="de">2</span></span> = 4+4 = 8+8 = 16  <span class="boxed">相等!</span></p>
+
+<p style="margin-top:8px"><u>内存对比 — 这就是赚到的地方</u>:</p>
+<p>无SP, 每GPU需存的激活 (只看LN+Dropout, 共4处):</p>
+<div class="brace-lg"><div class="inner">
+<p>LN输入: 4×4 = <span class="red">16</span></p>
+<p>Dropout: 4×4 = <span class="red">16</span></p>
+<p>MLP-LN: 4×4 = <span class="red">16</span></p>
+<p>MLP-Drop: 4×4 = <span class="red">16</span></p>
+</div></div>
+<p class="i">共 <span class="red">64</span> 个元素 ← 因为每块GPU都存完整seq</p>
+
+<p style="margin-top:4px">有SP, 每GPU只存自己那半:</p>
+<div class="brace-lg"><div class="inner">
+<p>LN输入: 2×4 = <span class="grn">8</span></p>
+<p>Dropout: 2×4 = <span class="grn">8</span></p>
+<p>MLP-LN: 2×4 = <span class="grn">8</span></p>
+<p>MLP-Drop: 2×4 = <span class="grn">8</span></p>
+</div></div>
+<p class="i">共 <span class="grn">32</span> 个元素 ← 省了一半!</p>
+
+<p style="margin-top:4px">即对块1修正: <span class="red">64</span> → <span class="grn">32</span>, 节省比 = <span class="boxed">2×</span></p>
+<p class="i">其余激活 (QKV, fc1等) 本来就被TP切了, 不变</p>
+
+<p style="margin-top:8px">代入真实值 Llama-70B, h=8192, s=8192, T=8, 20层:</p>
+<p class="i">无SP 4处冗余: 4 × 8192² × 2B × 20 = <span class="red">8.6 GB</span></p>
+<p class="i">有SP ÷8:     4 × 8192²/8 × 2B × 20 = <span class="grn">1.1 GB</span></p>
+<p class="i">净省 <span class="boxed">7.5 GB / GPU</span>, H100有80GB → 可多跑更大batch</p>
+
+<p style="margin-top:8px">得: <span class="grn">通信量不变, 激活内存减半以上, 免费午餐</span></p>
+
+</div>
+</body>
+</html>
