@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>板书 — MoE Expert Parallel 通信量推导</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#fff;display:flex;justify-content:center}
+.p{
+  width:100%;max-width:780px;min-height:100vh;
+  padding:36px 30px 52px 30px;
+  font-family:'Caveat',cursive;font-size:1.44rem;color:#1a1a1a;line-height:2.05;
+}
+.i{padding-left:48px}
+.ii{padding-left:96px}
+.sm{font-size:1.12rem;color:#555}
+.red{color:#c0392b}
+.grn{color:#1a7a3a}
+.blu{color:#2471a3}
+.fr{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1;margin:0 4px}
+.fr .nu{border-bottom:1.8px solid #1a1a1a;padding:0 5px 2px}
+.fr .de{padding:2px 5px 0}
+.boxed{border:2.5px solid #1a1a1a;padding:2px 12px;display:inline-block}
+.del{text-decoration:line-through;color:#999}
+.side{float:right;font-size:1.08rem;color:#888;margin-left:12px;max-width:200px;text-align:right}
+.brace{display:flex;margin:2px 0 2px 24px}
+.brace::before{content:'{';font-size:4.2rem;line-height:1;font-weight:200;margin-right:8px;display:flex;align-items:center;color:#333;font-family:'Caveat',cursive}
+.brace .inner{display:flex;flex-direction:column;justify-content:center}
+.brace .inner p{line-height:1.7;margin:0}
+@media(max-width:600px){.p{padding:18px 10px;font-size:1.18rem;line-height:1.85}.i{padding-left:24px}.ii{padding-left:48px}.side{float:none;max-width:100%;text-align:left;margin:0}}
+</style>
+</head>
+<body>
+<div class="p">
+
+<p>假设 MoE 层有 4 个专家, 隐藏维 d=3, 选 top-1</p>
+<p>门控权重:</p>
+<p class="i">W<sub>g</sub> = [[0.2, −0.5, 0.8], [0.9, 0.1, −0.3], [−0.4, 0.7, 0.6], [0.1, 0.3, −0.9]]</p>
+<p>输入 x = [1.0, 2.0, 0.5]</p>
+
+<p style="margin-top:6px">算门控 logits = W<sub>g</sub> · x:</p>
+<p class="i">E₁: 0.2×1 + (−0.5)×2 + 0.8×0.5 = 0.2−1.0+0.4 = <b>−0.4</b></p>
+<p class="i">E₂: 0.9×1 + 0.1×2 + (−0.3)×0.5 = 0.9+0.2−0.15 = <b>0.95</b></p>
+<p class="i">E₃: −0.4×1 + 0.7×2 + 0.6×0.5 = −0.4+1.4+0.3 = <b>1.3</b></p>
+<p class="i">E₄: 0.1×1 + 0.3×2 + (−0.9)×0.5 = 0.1+0.6−0.45 = <b>0.25</b></p>
+
+<p style="margin-top:6px">logits = [−0.4, 0.95, 1.3, 0.25],  max = 1.3</p>
+<p>softmax (减max防溢出):</p>
+<div class="brace"><div class="inner">
+<p>e<sup>−0.4−1.3</sup> = e<sup>−1.7</sup> ≈ 0.1827</p>
+<p>e<sup>0.95−1.3</sup> = e<sup>−0.35</sup> ≈ 0.7047</p>
+<p>e<sup>1.3−1.3</sup> = e<sup>0</sup> = 1.0000</p>
+<p>e<sup>0.25−1.3</sup> = e<sup>−1.05</sup> ≈ 0.3499</p>
+</div></div>
+<p class="i">求和 = 0.1827 + 0.7047 + 1.0000 + 0.3499 = 2.2373</p>
+<p class="i">g(x) = [0.082, 0.315, <b>0.447</b>, 0.156]</p>
+<p class="i">top-1 = E₃ (概率0.447), 输出 y = E₃(x)<span class="side">← 这就是路由决策</span></p>
+
+<p style="margin-top:12px">现在想象 6 个不同的 x, 各自算完路由:</p>
+<p class="i">x₁ → E₃,  x₂ → E₂,  x₃ → E₃,  x₄ → E₁,  x₅ → E₂,  x₆ → E₃</p>
+<p class="i"><span class="sm">统计: E₁得1个, E₂得2个, E₃得3个, E₄得0个</span></p>
+
+<p style="margin-top:8px"><u>引入 EP=2</u>:  2个rank, 每rank持有 4/2=2 个专家</p>
+<p class="i">rank₀ 有 {E₁, E₂},  rank₁ 有 {E₃, E₄}</p>
+<p class="i">6个输入分两半: rank₀ 持有 {x₁,x₂,x₃},  rank₁ 持有 {x₄,x₅,x₆}</p>
+
+<p style="margin-top:4px">rank₀ 手里3个输入的路由目标:</p>
+<p class="i">x₁→E₃ <span class="red">在rank₁!</span>    x₂→E₂ 在本地 ✓    x₃→E₃ <span class="red">在rank₁!</span></p>
+<p class="i">→ 必须发出 x₁, x₃ 给rank₁,  发出数据量 = 2 × 3(维度) = <b>6 个float</b></p>
+
+<p>rank₁ 手里3个输入的路由目标:</p>
+<p class="i">x₄→E₁ <span class="red">在rank₀!</span>    x₅→E₂ <span class="red">在rank₀!</span>    x₆→E₃ 在本地 ✓</p>
+<p class="i">→ 必须发出 x₄, x₅ 给rank₀,  发出数据量 = 2 × 3 = <b>6 个float</b></p>
+
+<p style="margin-top:4px">All-to-All 后:</p>
+<p class="i">rank₀ 拥有: x₂(→E₂), x₄(→E₁), x₅(→E₂) → 本地算完</p>
+<p class="i">rank₁ 拥有: x₁(→E₃), x₃(→E₃), x₆(→E₃) → 本地算完</p>
+
+<p style="margin-top:4px">第二次 A2A: 把结果发回去, 数据量同样 6+6 = 12 个float</p>
+<p>两次A2A总通信 = 12 + 12 = <b>24 个float</b> = 24 × 4B = <span class="blu">96 字节</span></p>
+
+<p style="margin-top:8px">验证公式: V = 2Nkd(P−1)/P</p>
+<p class="i">= 2 × 6 × 1 × 3 × (2−1)/2 = 36/2 = 18 ?  <span class="del">不对?</span></p>
+<p class="i"><span class="sm">因为公式算的是"每rank发出量×rank数",  实际: 每rank发出6, 共2个rank</span></p>
+<p class="i"><span class="sm">每rank发出 = N/P × k × (1−1/P) × d = 3×1×0.5×3 = 4.5 ← 期望值</span></p>
+<p class="i"><span class="sm">实际发出6, 因为路由不均 (E₃得3个, 概率偏高)</span></p>
+<p class="i"><span class="sm">公式给的是期望! 实际通信量取决于路由分布</span></p>
+<p class="i side">← 这就是为什么负载均衡重要</p>
+
+<p style="margin-top:10px"><u>负载均衡 loss 怎么算?</u></p>
+<p>还是这6个输入: E₁得1个, E₂得2个, E₃得3个, E₄得0个</p>
+<p class="i">f = [1/6, 2/6, 3/6, 0/6] = [0.167, 0.333, 0.500, 0.000]</p>
+<p class="i"><span class="sm">(每个专家分到的token比例)</span></p>
+
+<p>每个输入的softmax概率取均值:</p>
+<p class="i">P = 对6个输入的g(x)按列求均值,  假设算出来 ≈ [0.10, 0.28, 0.45, 0.17]</p>
+
+<p class="i">ℒ<sub>aux</sub> = α × 4 × (0.167×0.10 + 0.333×0.28 + 0.500×0.45 + 0.000×0.17)</p>
+<p class="i">     = α × 4 × (0.0167 + 0.0932 + 0.2250 + 0)</p>
+<p class="i">     = α × 4 × 0.3349 = <b>1.340 α</b></p>
+
+<p style="margin-top:4px">如果完全均匀: f=[0.25,0.25,0.25,0.25], P=[0.25,0.25,0.25,0.25]</p>
+<p class="i">ℒ = α × 4 × 4×(0.25×0.25) = α × 4 × 0.25 = <b>1.000 α</b></p>
+
+<p class="i">1.340α vs 1.000α → 不均匀多出 <span class="red">34%</span> 的loss</p>
+<p class="i">梯度反传到 W<sub>g</sub>, 推动 E₃ 的路由概率下降, E₄ 上升</p>
+
+<p style="margin-top:6px">得: <span class="grn">aux loss 让各专家的 f·P 乘积趋向 1/E²,</span></p>
+<p class="i"><span class="grn">通信量趋向期望值 2Nkd, 木桶效应减轻</span></p>
+
+</div>
+</body>
+</html>
